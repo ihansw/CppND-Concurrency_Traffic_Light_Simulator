@@ -33,8 +33,8 @@ void MessageQueue<T>::send(T &&msg)
     std::lock_guard<std::mutex> ulock(_mqMutex);
 
     //std::cout << "Traffic light message (" << msg << ") has been sent!" << std::endl;
-
-    _msgs.push_back(std::move(msg));
+    _msgs.clear(); // it's more efficient to add this line for the center intersection that gets used alot.
+    _msgs.emplace_back(std::move(msg));
     _cond.notify_one(); // Notify after pushing a new message to the queue
 
 }
@@ -47,6 +47,8 @@ TrafficLight::TrafficLight()
 {
     _currentPhase = TrafficLightPhase::red;
 }
+
+TrafficLight::~TrafficLight(){}
 
 void TrafficLight::waitForGreen()
 {
@@ -81,24 +83,41 @@ void TrafficLight::cycleThroughPhases()
     // to the message queue using move semantics. The cycle duration should be a random value between 4 and 6 seconds. 
     // Also, the while-loop should use std::this_thread::sleep_for to wait 1ms between two cycles. 
 
-    while(true){
-        // Wait 4-6 seconds
-        int wait_time_ms = 4000 + static_cast<int> (rand()) / (static_cast<int> (RAND_MAX/(6000-4000)));
-        //std::cout << "wait_time_ms: " << wait_time_ms << "ms" << std::endl;
-        std::this_thread::sleep_for(std::chrono::milliseconds(wait_time_ms));
+    // Get random int between 4000 and 6000
+    std::random_device rd;
+    std::mt19937 eng(rd());
+    std::uniform_int_distribution<int> distr(4000, 6000);
 
-        // Toggle _currentPhase
-        if(_currentPhase == TrafficLightPhase::red){
-            _currentPhase = TrafficLightPhase::green;
+    int cycle_duration = distr(eng);
+
+    // Get current time to measure elapsed time
+    auto start = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<float> elapsed;
+
+    while(true){
+        // Measure elapsed time in seconds
+        elapsed = std::chrono::high_resolution_clock::now() - start;
+
+        if (elapsed.count()*1000 > cycle_duration){
+            // Reset time variables
+            cycle_duration = distr(eng);
+            start = std::chrono::high_resolution_clock::now();
+
+            // Toggle _currentPhase
+            if(_currentPhase == TrafficLightPhase::red){
+                _currentPhase = TrafficLightPhase::green;
+            }
+            else{
+                _currentPhase = TrafficLightPhase::red;
+            }
+            
+            // send message queue using move semantics
+            TrafficLightPhase msg = _currentPhase;
+            _queue.send(std::move(msg));
         }
         else{
-            _currentPhase = TrafficLightPhase::red;
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
-        
-        // send message queue using move semantics
-        TrafficLightPhase msg = _currentPhase;
-        _queue.send(std::move(msg));
     }
-    
 }
 
